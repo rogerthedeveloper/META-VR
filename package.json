@@ -1,0 +1,34 @@
+{
+  "name": "roger_web-vr",
+  "version": "1.0.0",
+  "description": "An implementation of Three.js for take a starting point with 360° 3D Stereo Video or Image, within Device Orientation Controller and Cursor Point Navigation for VR Google Cardboard or VR Box also Oculus.",
+  "main": "index.js",
+  "dependencies": {
+    "three": "^0.134.0"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rogerthedeveloper/360-3D-Stereo-Image-or-Video-Three.js.git"
+  },
+  "keywords": [
+    "WEB",
+    "VR",
+    "THREE.JS",
+    "360",
+    "3D",
+    "VIDEO",
+    "IMAGE",
+    "VR",
+    "VIRTUAL",
+    "REALITY"
+  ],
+  "author": "Roger the Developer",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/rogerthedeveloper/360-3D-Stereo-Image-or-Video-Three.js/issues"
+  },
+  "homepage": "https://github.com/rogerthedeveloper/360-3D-Stereo-Image-or-Video-Three.js#readme"
+}

@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+    <title>METAVR</title>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <style>
+        body {
+            margin: 0px;
+            overflow: hidden;
+        }
+
+        #scene {
+            position: absolute;
+            z-index: 1;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+        }
+
+        #left_hud {
+            pointer-events: none;
+            position: absolute;
+            z-index: 3;
+            left: 0;
+            width: 45%;
+            height: 100%;
+            margin-left: 2.5%;
+        }
+
+        #right_hud {
+            pointer-events: none;
+            position: absolute;
+            z-index: 3;
+            right: 0;
+            width: 45%;
+            height: 100%;
+            margin-right: 2.5%;
+        }
+
+        #guide_circle_left {
+            pointer-events: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 2.5vw;
+            height: 2.5vw;
+            border-radius: 100%;
+        }
+
+        #guide_circle_right {
+            pointer-events: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 2.5vw;
+            height: 2.5vw;
+            border-radius: 100%;
+        }
+
+        #bottom_hud_text_area {
+            position: absolute;
+            bottom: 0;
+            margin-bottom: 20%;
+            text-shadow: 1px 1px darkgray;
+        }
+
+        .info_text {
+            color: white;
+            font-size: 100%;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="left_hud">
+        <div id="guide_circle_left"></div>
+
+        <div id="bottom_hud_text_area">
+            <p class="info_text"></p>
+        </div>
+    </div>
+
+    <div id="right_hud">
+        <div id="guide_circle_right"></div>
+
+        <div id="bottom_hud_text_area">
+            <p class="info_text"></p>
+        </div>
+    </div>
+
+    <div id="scene">
+
+    <button style="position: absolute" id="goFS">VR</button></div>
+
+    <script src="node_modules/three/build/three.min.js"></script>
+    <script src="node_modules/three/examples/js/effects/StereoEffect.js"></script>
+    <script src="node_modules/three/examples/js/controls/OrbitControls.js"></script>
+    <script src="node_modules/three/examples/js/controls/DeviceOrientationControls.js"></script>
+    <script src="node_modules/three/examples/js/loaders/OBJLoader.js"></script>
+    <script src="node_modules/three/examples/js/loaders/GLTFLoader.js"></script>
+
+    <script src="libs/progressbar.js"></script>
+    <script src="libs/Tween.js"></script>
+
+    <script>
+
+        class GamePad {
+
+            constructor() {
+                this.supported = (navigator.webkitGetGamepads && navigator.webkitGetGamepads()) ||
+                    !!navigator.webkitGamepads || !!navigator.mozGamepads ||
+                    !!navigator.msGamepads || !!navigator.gamepads ||
+                    (navigator.getGamepads && navigator.getGamepads());
+
+                this.ticking = false;
+
+                this.pan = new THREE.Vector3(0, 0, 0);
+                this.roll = new THREE.Vector3(0, 0, 0);
+
+                // Recommended deadzones for Xbox One controller
+                this.RIGHT_AXIS_THRESHOLD = 7849 / 32767.0;
+                this.LEFT_AXIS_THRESHOLD = 8689 / 32767.0;
+                this.TRIGGER_AXIS_THRESHOLD = 30 / 32767.0;
+
+                this.SPACEMOUSE_THRESHOLD = 5 / 32767.0;
+
+                this.gamepads = [];
+                this.prevRawGamepadTypes = [];
+                this.prevTimestamps = [];
+
+                this.init();
+            }
+
+            init() {
+                if (this.supported) {
+                    // Older Firefox 
+                    window.addEventListener('MozGamepadConnected', (e) => this.onGamepadConnect(e), false);
+                    window.addEventListener('MozGamepadDisconnected', (e) => this.onGamepadDisconnect(e), false);
+
+                    //W3C Specification
+                    window.addEventListener('gamepadconnected', (e) => this.onGamepadConnect(e), false);
+                    window.addEventListener('gamepaddisconnected', (e) => this.onGamepadDisconnect(e), false);
+
+                    // Chrome
+                    if (navigator.webkitGetGamepads && navigator.webkitGetGamepads()) {
+                        this.startPolling();
+                    }
+
+                    //CocoonJS
+                    if (navigator.getGamepads && navigator.getGamepads()) {
+                        this.startPolling();
+                    }
+                } else {
+                    console.log('Gamepad API not supported or not detected!');
+                }
+            }
+
+            startPolling() {
+                console.log('Controller Connected!');
+                if (!this.ticking) {
+                    this.ticking = true;
+                    this.update();
+                }
+            }
+
+            stopPolling() {
+                console.log('Controller Disconnected!');
+                this.ticking = false;
+            }
+
+            // Called externally
+            update() {
+                this.pollStatus();
+                if (this.ticking) {
+                    this.pollJoysticks();
+                    //requestAnimationFrame(() => this.tick());
+                }
+            }
+
+            pollStatus() {
+                this.pollGamepads();
+                for (let i in this.gamepads) {
+                    let gamepad = this.gamepads[i];
+                    if (gamepad.timestamp && (gamepad.timestamp === this.prevTimestamps[i])) {
+                        continue;
+                    }
+                    this.prevTimestamps[i] = gamepad.timestamp;
+                }
+            }
+
+            pollGamepads() {
+                let rawGamepads = (navigator.webkitGetGamepads && navigator.webkitGetGamepads()) ||
+                    navigator.webkitGamepads || navigator.mozGamepads ||
+                    navigator.msGamepads || navigator.gamepads ||
+                    (navigator.getGamepads && navigator.getGamepads());
+                if (rawGamepads) {
+                    this.gamepads = [];
+                    for (let i = 0, max = rawGamepads.length; i < max; i++) {
+                        if (typeof rawGamepads[i] !== this.prevRawGamepadTypes[i]) {
+                            this.prevRawGamepadTypes[i] = typeof rawGamepads[i];
+                        }
+                        if (rawGamepads[i]) {
+                            this.gamepads.push(rawGamepads[i]);
+                        }
+                    }
+                }
+            }
+
+            pollJoysticks() {
+                let pad = 0;
+
+                // Reset all input to 0
+                this.pan = new THREE.Vector3(0, 0, 0);
+                this.roll = new THREE.Vector3(0, 0, 0);
+
+                if (this.gamepads[pad]) {
+
+                    let panX = this.gamepads[pad].axes[0]; // Pan  X || Left X
+                    let panY = this.gamepads[pad].axes[1]; // Pan  Y || Left Y
+                    let panZ = this.gamepads[pad].axes[2]; // Pan  Z || Right X
+
+                    let rollX = this.gamepads[pad].axes[3]; // Roll X || Right Y
+                    let rollY = this.gamepads[pad].axes[4]; // Roll Y || Trigger Left
+                    let rollZ = this.gamepads[pad].axes[5]; // Roll Z || Trigger Right
+
+                    if (panX < -this.SPACEMOUSE_THRESHOLD ||
+                        panX > this.SPACEMOUSE_THRESHOLD) {
+                        this.pan.x = panX;
+                    }
+
+                    if (panY < -this.SPACEMOUSE_THRESHOLD ||
+                        panY > this.SPACEMOUSE_THRESHOLD) {
+                        this.pan.y = panY;
+                    }
+
+                    if (panZ < -this.SPACEMOUSE_THRESHOLD ||
+                        panZ > this.SPACEMOUSE_THRESHOLD) {
+                        this.pan.z = panZ;
+                    }
+
+                    if (rollX < -this.SPACEMOUSE_THRESHOLD ||
+                        rollX > this.SPACEMOUSE_THRESHOLD) {
+                        this.roll.x = rollX;
+                    }
+
+                    if (rollY < -this.SPACEMOUSE_THRESHOLD ||
+                        rollY > this.SPACEMOUSE_THRESHOLD) {
+                        this.roll.y = rollY;
+                    }
+
+                    if (rollZ < -this.SPACEMOUSE_THRESHOLD ||
+                        rollZ > this.SPACEMOUSE_THRESHOLD) {
+                        this.roll.z = rollZ;
+                    }
+                }
+            }
+
+            onGamepadConnect(event) {
+                console.log(event);
+                let gamepad = event.gamepad;
+                this.gamepads[event.gamepad.id] = gamepad;
+                this.startPolling();
+            }
+
+            onGamepadDisconnect(event) {
+                this.gamepads[event.gamepad.id] = null;
+                if (this.gamepads.length === 0) {
+                    this.stopPolling();
+                }
+            }
+        }
+
+        // Create controller with Gamepad API
+        let controller = new GamePad();
+
+        var camera, scene, renderer, cube;
+        var left_bar, right_bar;
+        var effect, controls;
+        var element, container;
+        var scCube;
+        var selectableObjs = [];
+        var width = window.innerWidth, height = window.innerHeight;
+
+        var vr = 1;
+
+        var clock = new THREE.Clock();
+
+        var min = { x: 100, y: 100, z: 100 }
+        var touchTweenTo = new TWEEN.Tween(min);
+        var max = { x: 120, y: 120, z: 120 };
+
+        //Set up animation cycle used on touched objects
+        touchTweenTo.to(max, 200);
+        touchTweenTo.easing(TWEEN.Easing.Bounce.InOut);
+        touchTweenTo.repeat(Infinity); // repeats forever
+        touchTweenTo.start();
+
+        var SELECTION_TIME = 3000;
+
+        //Allow for fullscreen and detect return from
+        var goFS = document.getElementById("goFS");
+
+        var doc = window.document;
+        var docEl = doc.documentElement;
+
+        goFS.addEventListener("click", ()=> {
+            fullscreen(docEl);
+            if (vr == 0) {
+                vr = 1;
+            }
+            else {
+                vr = 0;
+            }
+        }, false);
+
+
+        //Build Three.js scene
+        init();
+        drawShapes();
+        animate();
+
+        function init() {
+
+            left_bar = new ProgressBar.Circle('#guide_circle_left', {
+                strokeWidth: 10,
+                easing: 'easeInOut',
+                duration: SELECTION_TIME,
+                color: 'lime',
+                trailWidth: 2,
+                svgStyle: null
+            });
+
+            right_bar = new ProgressBar.Circle('#guide_circle_right', {
+                strokeWidth: 10,
+                easing: 'easeInOut',
+                duration: SELECTION_TIME,
+                color: 'lime',
+                trailWidth: 2,
+                svgStyle: null
+            });
+
+            //Stereo scene
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            element = renderer.domElement;
+            container = document.getElementById('scene');
+
+            container.appendChild(element);
+
+            effect = new THREE.StereoEffect(renderer);
+
+            effect.setEyeSeparation(2);
+
+            scene = new THREE.Scene();
+
+            camera = new THREE.PerspectiveCamera(90, 1, 0.001, 70);
+            camera.position.set(0, 0, 0);
+            scene.add(camera);
+
+            controls = new THREE.OrbitControls(camera, element);
+
+            controls.target.set(
+                camera.position.x + 0.1,
+                camera.position.y,
+                camera.position.z
+            );
+
+            //controls.noZoom = true;
+            controls.enablePan = true;
+
+            function setOrientationControls(e) {
+                if (!e.alpha) {
+                    return;
+                }
+
+                controls = new THREE.DeviceOrientationControls(camera, true);
+                controls.connect();
+                controls.update();
+
+                element.addEventListener('click', fullscreen, false);
+
+                window.removeEventListener('deviceorientation', setOrientationControls, true);
+            }
+
+            window.addEventListener('deviceorientation', setOrientationControls, true);
+
+            // Add lights
+            var ambLight = new THREE.AmbientLight(0x808080); // soft white light
+        
+            ambLight.castShadow = true;
+
+            scene.add(ambLight);
+
+            var ptLight = new THREE.PointLight(0xffffff, 1.75, 1000);
+            ptLight.position.set(-100, 100, 100);
+            scene.add(ptLight);
+
+            //Add other scene elements
+            drawSimpleSkybox();
+            //drawShapes();
+
+            window.addEventListener('resize', resize, false);
+            setTimeout(resize, 1);
+
+        }
+
+        function drawSimpleSkybox() {
+            // define path and box sides images
+            var path = 'textures/';
+            var sides = [path + 'sbox_px.jpg', path + 'sbox_nx.jpg', path + 'sbox_py.jpg', path + 'sbox_ny.jpg', path + 'sbox_pz.jpg', path + 'sbox_nz.jpg'];
+
+            var loader = new THREE.CubeTextureLoader();
+
+            scCube = loader.load(sides);
+
+            scCube.minFilter = THREE.NearestFilter;
+            scCube.maxFilter = THREE.NearestFilter;
+
+            scCube.format = THREE.RGBFormat;
+
+            scene.background = scCube;
+
+            // create Mesh with cube geometry and add to the scene
+            var skyBox = new THREE.Mesh(new THREE.BoxGeometry(1000, 1000, 1000));
+         
+            skyBox.UserData = { name: "skyBox" };
+
+            scene.add(skyBox);
+        }
+
+        function drawShapes() {
+
+            var l = new THREE.GLTFLoader();
+
+            l.load('models/Xbot.glb', (gltf) => {
+
+                model = gltf.scene;
+
+                model.userData = { name: "Xbot" };
+
+                model.traverse( function ( object ) {
+
+                    if ( object.isMesh ) object.castShadow = true;
+
+                } );
+
+                skeleton = new THREE.SkeletonHelper( model );
+                skeleton.visible = false;
+                scene.add( skeleton );
+
+                skeleton
+
+                model.scale.set(10, 10, 10);
+                model.position.set(0, 0, 0);
+                
+                scene.add(model);
+
+            });
+
+            var manager = new THREE.LoadingManager();
+            manager.onProgress = function (item, loaded, total) {
+
+                console.log(item, loaded, total);
+
+            };
+
+            var objLoader = new THREE.OBJLoader(manager);
+            objLoader.load("models/moon_charm.obj", meshloader("models/moon_charm.obj"));
+            objLoader.load("models/heart_charm.obj", meshloader("models/heart_charm.obj"));
+            objLoader.load("models/clover_charm.obj", meshloader("models/clover_charm.obj"));
+            objLoader.load("models/star_charm.obj", meshloader("models/star_charm.obj"));
+
+            function meshloader(fileName) {
+                return function (geometry) {
+
+                    //Place in scene
+                    var color;
+                    if (fileName.indexOf("moon") !== -1) {
+                        color = 0x37FDFC;
+                        geometry.scale.set(100, 100, 100);
+                        geometry.position.z = 25;
+                        geometry.rotation.z = Math.PI / 4;
+                        geometry.position.y = 10;
+                        selectableObjs.push(geometry);
+                        geometry.userData = { name: "moon", touched: false };
+                        scene.add(geometry);
+                    }
+                    if (fileName.indexOf("heart") !== -1) {
+                        color = 0xFA3C84;
+                        geometry.scale.set(100, 100, 100);
+                        geometry.position.x = 25;
+                        geometry.position.y = 10;
+                        selectableObjs.push(geometry);
+                        geometry.userData = { name: "heart", touched: false };
+                        scene.add(geometry);
+                    }
+                    if (fileName.indexOf("clover") !== -1) {
+                        color = 0x3EA055;
+                        geometry.scale.set(100, 100, 100);
+                        geometry.position.x = -25;
+                        geometry.position.y = 10;
+                        selectableObjs.push(geometry);
+                        geometry.userData = { name: "clover", touched: false };
+                        scene.add(geometry);
+                    }
+                    if (fileName.indexOf("star") !== -1) {
+                        color = 0xFF6500;
+                        geometry.scale.set(100, 100, 100);
+                        geometry.position.z = -25;
+                        geometry.position.y = 10;
+                        selectableObjs.push(geometry);
+                        geometry.userData = { name: "star", touched: false };
+                        scene.add(geometry);
+                    }
+                    //Apply material
+                    geometry.traverse(function (child) {
+                        if (child instanceof THREE.Mesh) {
+                            var material = new THREE.MeshPhongMaterial(
+                                {
+                                    color: color,
+                                    side: THREE.DoubleSide,
+                                    emissive: 0x000000,
+                                    envMap: scCube
+                                }
+                            );
+                            child.material = material;
+                        }
+                    });
+
+                }
+            }
+
+        }
+
+        //What happens after an object is selected
+        function postSelectAction(selectedObjectName) {
+
+
+
+        }
+
+        function getIntersections(objects) {
+            var raycaster = new THREE.Raycaster();
+
+            var vector = new THREE.Vector3(0, 0, - 1);
+            vector.applyQuaternion(camera.quaternion);
+
+            raycaster.set(camera.position, vector);
+
+            return raycaster.intersectObjects(objects, true);
+
+        }
+
+        function updateHUDTxt(msg) {
+            x = document.getElementsByClassName("info_text");  // Find the elements
+            for (var i = 0; i < x.length; i++) {
+                x[i].innerText = msg;    // Change the content
+            }
+        }
+
+        function getTouchMsg(charm) {
+            var msg = "That's a " + charm + ", which has the power to ";
+
+            switch (charm) {
+                case "heart":
+                    msg = msg + "bring things to life.";
+                    msg = msg.replace(charm, "pink " + charm);
+                    break;
+                case "moon":
+                    msg = msg + "make things invisible.";
+                    msg = msg.replace(charm, "blue " + charm);
+                    break;
+                case "clover":
+                    msg = msg + "bring luck (but you never know which kind).";
+                    msg = msg.replace(charm, "green " + charm);
+                    break;
+                case "star":
+                    msg = msg + "make things fly (but you already have that).";
+                    msg = msg.replace(charm, "orange " + charm);
+                    break;
+            }
+
+            return ""
+        }
+
+        function resize() {
+
+            var width = container.offsetWidth;
+            var height = container.offsetHeight;
+
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+
+            renderer.setSize(width, height);
+            effect.setSize(width, height);
+        }
+
+        function update(dt) {
+
+            resize();
+
+            camera.updateProjectionMatrix();
+
+            controls.update(dt);
+
+        }
+
+        function render(dt) {
+
+            updateHUDTxt(""); //Set HUD txt to blank to start render loop.
+
+            intersects = getIntersections(selectableObjs);
+
+            if (intersects.length == 0) {//nothing being "touched"
+                left_bar.set(0.0);//reset any active progress bars to 0
+                right_bar.set(0.0);
+
+                //Loop over all OBJ objects (the charms)
+                scene.traverse(function (object) {
+                    //Set all charms touch flag to false as nothing is selected.
+                    if (object instanceof THREE.Group) {
+                        if (intersects.length == 0) {
+                            object.userData.touched = false;
+                        }
+                    }
+                });
+            } else {//something being touched
+                //Set the touched charm's touch flag to true, so we can give it special treatment in the animation function
+                intersects[0].object.parent.userData.touched = true;
+                msg = getTouchMsg(intersects[0].object.parent.userData.name); //update HUD text to register the touch
+                updateHUDTxt(msg);
+            }
+
+            if (vr == 0) {
+
+                renderer.render(scene, camera);
+
+            }
+            else if (vr == 1) {
+
+                effect.render(scene, camera);
+
+            }
+
+        }
+        
+        // Animation loop
+        function animate(t) {
+
+            TWEEN.update();
+            controller.update();
+
+            camera.translateX(1 * controller.pan.x);
+            camera.translateZ(1 * controller.pan.y);
+
+            touchTweenTo.onUpdate(function () {
+                animScale = this;
+            });
+
+            scene.traverse(function (object) {
+                if (object instanceof THREE.Group) {
+
+                    if (object.userData.name == "heart") {
+                        object.rotation.y = object.rotation.y + 0.01;
+                    }
+                    if (object.userData.name == "moon") {
+                        object.rotation.y = object.rotation.y + 0.01;
+                    }
+                    if (object.userData.name == "clover") {
+                        object.rotation.y = object.rotation.y + 0.01;
+                    }
+                    if (object.userData.name == "star") {
+                        object.rotation.y = object.rotation.y + 0.01;
+                    }
+                    if(object.userData.name == "Xbot"){
+                    }
+                
+                    if (object.userData.touched) {
+
+                        object.scale.x = animScale.x;
+                        object.scale.y = animScale.y;
+                        object.scale.z = animScale.z;
+
+
+                        if (left_bar.value() == 0) {//don't restart progress bar if already progress
+                            left_bar.animate(1.0, {
+                            }, function () {
+                                postSelectAction(object.userData.name);//add callback to left side progress bar to register completed selection
+                            });
+                        }
+                        if (right_bar.value() == 0) { //don't restart if in progress
+                            right_bar.animate(1.0);
+                        }
+
+                    }
+                }
+            });
+
+            requestAnimationFrame(animate);
+
+            update(clock.getDelta());
+
+            render(clock.getDelta());
+        }
+
+        function fullscreen(container) {
+
+            if (container.requestFullscreen) {
+                container.requestFullscreen();
+            } else if (container.msRequestFullscreen) {
+                container.msRequestFullscreen();
+            } else if (container.mozRequestFullScreen) {
+                container.mozRequestFullScreen();
+            } else if (container.webkitRequestFullscreen) {
+                container.webkitRequestFullscreen();
+            }
+
+        }
+
+    </script>
+</body>
+
+</html>
